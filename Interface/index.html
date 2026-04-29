@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>BanqueDB — Console SQL</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:ital,wght@0,400;0,500;1,400&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet"/>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:        #f8fafc;
+    --surface:   #ffffff;
+    --surface2:  #f1f5f9;
+    --border:    #e2e8f0;
+    --border2:   #cbd5e1;
+    --accent:    #7dd3fc;
+    --accent-dk: #0ea5e9;
+    --accent-bg: #f0f9ff;
+    --text:      #0f172a;
+    --text2:     #475569;
+    --muted:     #94a3b8;
+    --green:     #10b981;
+    --red:       #ef4444;
+    --mono:      'DM Mono', monospace;
+    --sans:      'DM Sans', sans-serif;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* ── Header ── */
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 1.5rem;
+    height: 56px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    box-shadow: 0 1px 3px rgba(0,0,0,.04);
+  }
+  .logo {
+    display: flex; align-items: center; gap: .6rem;
+    font-family: var(--sans); font-weight: 600; font-size: 1rem;
+    color: var(--text); letter-spacing: -.01em;
+  }
+  .logo-icon {
+    width: 28px; height: 28px;
+    background: var(--accent-bg);
+    border: 1.5px solid var(--accent);
+    border-radius: 7px;
+    display: grid; place-items: center;
+    font-size: .85rem;
+  }
+  .logo span { color: var(--accent-dk); }
+  .status-pill {
+    display: flex; align-items: center; gap: .45rem;
+    font-family: var(--mono); font-size: .7rem; color: var(--muted);
+    background: var(--surface2); border: 1px solid var(--border);
+    padding: .3rem .75rem; border-radius: 20px;
+  }
+  .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green);
+    box-shadow: 0 0 6px var(--green); animation: pulse 2s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
+
+  /* ── Main Layout ── */
+  main {
+    display: grid;
+    grid-template-columns: 240px 1fr;
+    grid-template-rows: auto 1fr;
+    height: calc(100vh - 56px);
+  }
+
+  /* ── Sidebar ── */
+  aside {
+    grid-row: 1 / 3;
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    overflow-y: auto;
+    padding: 1rem;
+  }
+  .sidebar-title {
+    font-family: var(--mono); font-size: .62rem; text-transform: uppercase;
+    letter-spacing: .12em; color: var(--muted); margin-bottom: .85rem;
+    padding-bottom: .5rem; border-bottom: 1px solid var(--border);
+  }
+
+  .table-card {
+    border: 1px solid var(--border);
+    border-radius: 8px; margin-bottom: .6rem; overflow: hidden;
+    transition: border-color .15s;
+  }
+  .table-card:hover { border-color: var(--accent); }
+  .table-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: .55rem .8rem; cursor: pointer;
+    font-family: var(--mono); font-size: .75rem; font-weight: 500;
+    color: var(--accent-dk); user-select: none;
+    background: var(--accent-bg);
+  }
+  .table-header .chevron { transition: transform .2s; font-size: .65rem; color: var(--muted); }
+  .table-header.open .chevron { transform: rotate(90deg); }
+  .table-cols { display: none; padding: .4rem .8rem .6rem; background: var(--surface); }
+  .table-cols.show { display: block; }
+  .col-row {
+    display: flex; align-items: center; gap: .4rem;
+    font-family: var(--mono); font-size: .68rem;
+    padding: .22rem 0; border-bottom: 1px solid var(--border);
+    color: var(--text2);
+  }
+  .col-row:last-child { border-bottom: none; }
+  .col-type { color: var(--muted); font-size: .62rem; margin-left: auto; }
+  .pk-badge { background: #dcfce7; color: #16a34a;
+    font-size: .58rem; padding: .08rem .3rem; border-radius: 3px; font-weight: 500; }
+  .fk-badge { background: #fff7ed; color: #ea580c;
+    font-size: .58rem; padding: .08rem .3rem; border-radius: 3px; font-weight: 500; }
+
+  .quick-title {
+    font-family: var(--mono); font-size: .62rem; text-transform: uppercase;
+    letter-spacing: .12em; color: var(--muted); margin: 1.2rem 0 .6rem;
+    padding-bottom: .5rem; border-bottom: 1px solid var(--border);
+  }
+  .quick-btn {
+    display: block; width: 100%; text-align: left;
+    background: var(--surface); border: 1px solid var(--border);
+    color: var(--text2); font-family: var(--mono); font-size: .68rem;
+    padding: .5rem .75rem; border-radius: 7px; margin-bottom: .4rem;
+    cursor: pointer; transition: all .15s; line-height: 1.5;
+  }
+  .quick-btn:hover { border-color: var(--accent); background: var(--accent-bg); color: var(--text); }
+  .quick-btn span { color: var(--accent-dk); display: block; font-size: .6rem;
+    margin-bottom: .1rem; font-weight: 500; }
+
+  /* ── Editor area ── */
+  .editor-pane {
+    padding: 1rem 1.25rem;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+    display: flex; flex-direction: column; gap: .7rem;
+  }
+  .editor-label {
+    font-family: var(--mono); font-size: .62rem; text-transform: uppercase;
+    letter-spacing: .12em; color: var(--muted);
+  }
+  .editor-wrapper {
+    border: 1.5px solid var(--border); border-radius: 8px; overflow: hidden;
+    transition: border-color .2s, box-shadow .2s;
+  }
+  .editor-wrapper:focus-within {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(125,211,252,.2);
+  }
+  textarea#sql {
+    width: 100%; min-height: 120px;
+    background: var(--surface2); color: var(--text);
+    font-family: var(--mono); font-size: .82rem;
+    padding: .9rem 1rem; border: none; outline: none;
+    resize: vertical; line-height: 1.7;
+  }
+  textarea#sql::placeholder { color: var(--muted); }
+
+  .toolbar { display: flex; align-items: center; gap: .7rem; flex-wrap: wrap; }
+  .btn-run {
+    display: flex; align-items: center; gap: .45rem;
+    background: var(--accent-dk); color: white;
+    font-family: var(--sans); font-weight: 500; font-size: .82rem;
+    padding: .55rem 1.25rem; border-radius: 7px; border: none; cursor: pointer;
+    transition: all .15s;
+    box-shadow: 0 1px 3px rgba(14,165,233,.3);
+  }
+  .btn-run:hover { background: #0284c7; box-shadow: 0 4px 12px rgba(14,165,233,.35); transform: translateY(-1px); }
+  .btn-run:active { transform: translateY(0); }
+  .btn-clear {
+    background: transparent; border: 1px solid var(--border);
+    color: var(--muted); font-family: var(--sans); font-size: .8rem;
+    padding: .55rem 1rem; border-radius: 7px; cursor: pointer; transition: all .15s;
+  }
+  .btn-clear:hover { border-color: var(--red); color: var(--red); background: #fef2f2; }
+  .exec-time { margin-left: auto; font-family: var(--mono); font-size: .68rem; color: var(--muted); }
+
+  /* ── Results pane ── */
+  .results-pane { overflow: auto; padding: 1rem 1.25rem; background: var(--bg); }
+  .results-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: .8rem; }
+  .results-label { font-family: var(--mono); font-size: .62rem; text-transform: uppercase; letter-spacing: .12em; color: var(--muted); }
+  .badge-rows { font-family: var(--mono); font-size: .68rem; background: #dcfce7; color: #16a34a; padding: .2rem .65rem; border-radius: 20px; font-weight: 500; }
+  .badge-error { font-family: var(--mono); font-size: .68rem; background: #fee2e2; color: var(--red); padding: .2rem .65rem; border-radius: 20px; }
+
+  .placeholder { text-align: center; padding: 3rem 1rem; color: var(--muted); font-family: var(--mono); font-size: .78rem; line-height: 2.2; }
+  .placeholder big { display: block; font-size: 2rem; margin-bottom: .5rem; }
+  .error-box { background: #fff5f5; border: 1px solid #fecaca; border-radius: 8px; padding: .9rem 1.1rem; font-family: var(--mono); font-size: .78rem; color: var(--red); line-height: 1.7; }
+
+  .table-wrap { overflow-x: auto; border-radius: 8px; border: 1px solid var(--border); box-shadow: 0 1px 3px rgba(0,0,0,.04); }
+  table { width: 100%; border-collapse: collapse; font-size: .8rem; }
+  thead tr { background: var(--accent-bg); }
+  th { font-family: var(--mono); font-size: .65rem; font-weight: 500; text-transform: uppercase; letter-spacing: .08em; color: var(--accent-dk); padding: .65rem 1rem; text-align: left; border-bottom: 1.5px solid var(--accent); white-space: nowrap; }
+  td { font-family: var(--mono); font-size: .75rem; padding: .6rem 1rem; border-bottom: 1px solid var(--border); color: var(--text2); white-space: nowrap; background: var(--surface); }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: var(--accent-bg); }
+  .null-val { color: var(--muted); font-style: italic; }
+  .num-val { color: var(--accent-dk); font-weight: 500; }
+  .bool-true { color: var(--green); font-weight: 500; }
+  .bool-false { color: var(--red); font-weight: 500; }
+
+  .loading { text-align: center; padding: 2.5rem; font-family: var(--mono); font-size: .78rem; color: var(--accent-dk); }
+  .spinner { display: inline-block; width: 20px; height: 20px; border: 2px solid var(--accent); border-top-color: var(--accent-dk); border-radius: 50%; animation: spin .7s linear infinite; margin-bottom: .5rem; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  ::-webkit-scrollbar { width: 5px; height: 5px; }
+  ::-webkit-scrollbar-track { background: var(--bg); }
+  ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--accent); }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    <div class="logo-icon">🏦</div>
+    Banque<span>DB</span>
+  </div>
+  <div class="status-pill">
+    <span class="dot"></span>
+    PostgreSQL · banque · admin
+  </div>
+</header>
+
+<main>
+  <aside>
+    <div class="sidebar-title">Schéma</div>
+
+    <div class="table-card">
+      <div class="table-header" onclick="toggleTable(this)">clients <span class="chevron">▶</span></div>
+      <div class="table-cols">
+        <div class="col-row"><span class="pk-badge">PK</span> id <span class="col-type">SERIAL</span></div>
+        <div class="col-row">nom <span class="col-type">VARCHAR</span></div>
+        <div class="col-row">prenom <span class="col-type">VARCHAR</span></div>
+        <div class="col-row">email <span class="col-type">VARCHAR</span></div>
+        <div class="col-row">telephone <span class="col-type">VARCHAR</span></div>
+        <div class="col-row">adresse <span class="col-type">TEXT</span></div>
+        <div class="col-row">date_naissance <span class="col-type">DATE</span></div>
+        <div class="col-row">created_at <span class="col-type">TIMESTAMP</span></div>
+      </div>
+    </div>
+
+    <div class="table-card">
+      <div class="table-header" onclick="toggleTable(this)">comptes <span class="chevron">▶</span></div>
+      <div class="table-cols">
+        <div class="col-row"><span class="pk-badge">PK</span> id <span class="col-type">SERIAL</span></div>
+        <div class="col-row"><span class="fk-badge">FK</span> client_id <span class="col-type">INT</span></div>
+        <div class="col-row">numero <span class="col-type">VARCHAR</span></div>
+        <div class="col-row">type <span class="col-type">VARCHAR</span></div>
+        <div class="col-row">solde <span class="col-type">NUMERIC</span></div>
+        <div class="col-row">created_at <span class="col-type">TIMESTAMP</span></div>
+      </div>
+    </div>
+
+    <div class="table-card">
+      <div class="table-header" onclick="toggleTable(this)">transactions <span class="chevron">▶</span></div>
+      <div class="table-cols">
+        <div class="col-row"><span class="pk-badge">PK</span> id <span class="col-type">SERIAL</span></div>
+        <div class="col-row"><span class="fk-badge">FK</span> compte_id <span class="col-type">INT</span></div>
+        <div class="col-row">type <span class="col-type">VARCHAR</span></div>
+        <div class="col-row">montant <span class="col-type">NUMERIC</span></div>
+        <div class="col-row">description <span class="col-type">TEXT</span></div>
+        <div class="col-row">date_operation <span class="col-type">TIMESTAMP</span></div>
+      </div>
+    </div>
+
+    <div class="table-card">
+      <div class="table-header" onclick="toggleTable(this)">cartes <span class="chevron">▶</span></div>
+      <div class="table-cols">
+        <div class="col-row"><span class="pk-badge">PK</span> id <span class="col-type">SERIAL</span></div>
+        <div class="col-row"><span class="fk-badge">FK</span> compte_id <span class="col-type">INT</span></div>
+        <div class="col-row">numero <span class="col-type">VARCHAR</span></div>
+        <div class="col-row">type <span class="col-type">VARCHAR</span></div>
+        <div class="col-row">expiration <span class="col-type">DATE</span></div>
+        <div class="col-row">bloquee <span class="col-type">BOOLEAN</span></div>
+      </div>
+    </div>
+
+    <div class="quick-title">Requêtes rapides</div>
+    <button class="quick-btn" onclick="setQuery('SELECT * FROM clients;')"><span>clients</span>Tous les clients</button>
+    <button class="quick-btn" onclick="setQuery('SELECT * FROM comptes;')"><span>comptes</span>Tous les comptes</button>
+    <button class="quick-btn" onclick="setQuery('SELECT * FROM transactions ORDER BY date_operation DESC;')"><span>transactions</span>Dernières transactions</button>
+    <button class="quick-btn" onclick="setQuery('SELECT c.nom, c.prenom, co.numero, co.solde\nFROM clients c\nJOIN comptes co ON co.client_id = c.id\nORDER BY co.solde DESC;')"><span>JOIN</span>Clients + soldes</button>
+    <button class="quick-btn" onclick="setQuery('SELECT c.nom, c.prenom, SUM(t.montant) AS total_depots\nFROM clients c\nJOIN comptes co ON co.client_id = c.id\nJOIN transactions t ON t.compte_id = co.id\nWHERE t.type = \'depot\'\nGROUP BY c.id\nORDER BY total_depots DESC;')"><span>GROUP BY</span>Total dépôts par client</button>
+    <button class="quick-btn" onclick="setQuery('SELECT * FROM cartes WHERE bloquee = TRUE;')"><span>cartes</span>Cartes bloquées</button>
+    <button class="quick-btn" onclick="setQuery('SELECT co.numero, co.solde,\n  COUNT(t.id) AS nb_transactions\nFROM comptes co\nLEFT JOIN transactions t ON t.compte_id = co.id\nGROUP BY co.id\nHAVING co.solde > 2000\nORDER BY co.solde DESC;')"><span>HAVING</span>Comptes > 2000 € + stats</button>
+  </aside>
+
+  <div class="editor-pane">
+    <div class="editor-label">Éditeur SQL</div>
+    <div class="editor-wrapper">
+      <textarea id="sql" placeholder="-- Tape ta requête SQL ici&#10;SELECT * FROM clients LIMIT 10;"></textarea>
+    </div>
+    <div class="toolbar">
+      <button class="btn-run" onclick="runQuery()">▶ Exécuter</button>
+      <button class="btn-clear" onclick="clearAll()">✕ Effacer</button>
+      <span class="exec-time" id="execTime"></span>
+    </div>
+  </div>
+
+  <div class="results-pane" id="results">
+    <div class="placeholder"><big>⌨️</big>Écris une requête SQL ci-dessus<br>et clique sur <strong>Exécuter</strong></div>
+  </div>
+</main>
+
+<script>
+const API = 'http://localhost:3000';
+
+function toggleTable(header) {
+  header.classList.toggle('open');
+  header.nextElementSibling.classList.toggle('show');
+}
+function setQuery(q) { document.getElementById('sql').value = q; }
+function clearAll() {
+  document.getElementById('sql').value = '';
+  document.getElementById('execTime').textContent = '';
+  document.getElementById('results').innerHTML = `<div class="placeholder"><big>⌨️</big>Écris une requête SQL ci-dessus<br>et clique sur <strong>Exécuter</strong></div>`;
+}
+
+async function runQuery() {
+  const sql = document.getElementById('sql').value.trim();
+  if (!sql) return;
+  const resultsDiv = document.getElementById('results');
+  resultsDiv.innerHTML = `<div class="loading"><div class="spinner"></div><br>Exécution...</div>`;
+  document.getElementById('execTime').textContent = '';
+  const t0 = performance.now();
+  try {
+    const res = await fetch(`${API}/rpc/exec_sql`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      body: JSON.stringify({ query: sql })
+    });
+    const elapsed = ((performance.now() - t0) / 1000).toFixed(3);
+    document.getElementById('execTime').textContent = `⏱ ${elapsed}s`;
+    if (!res.ok) { const err = await res.json().catch(() => ({ message: res.statusText })); showError(err.message || res.statusText, resultsDiv); return; }
+    renderTable(await res.json(), resultsDiv);
+  } catch (e) {
+    document.getElementById('execTime').textContent = '';
+    showError(`Impossible de joindre le serveur.\n\n→ Vérifie que Docker est lancé (docker compose up)\n→ Erreur : ${e.message}`, resultsDiv);
+  }
+}
+
+function renderTable(rows, container) {
+  if (!rows || rows.length === 0) {
+    container.innerHTML = `<div class="results-header"><span class="results-label">Résultats</span><span class="badge-rows">0 ligne</span></div><div class="placeholder" style="padding:2rem"><big>✅</big>Requête exécutée — aucune ligne retournée</div>`;
+    return;
+  }
+  const cols = Object.keys(rows[0]);
+  const plural = rows.length > 1 ? 's' : '';
+  let html = `<div class="results-header"><span class="results-label">Résultats</span><span class="badge-rows">${rows.length} ligne${plural}</span></div><div class="table-wrap"><table><thead><tr>${cols.map(c=>`<th>${c}</th>`).join('')}</tr></thead><tbody>`;
+  for (const row of rows) {
+    html += '<tr>' + cols.map(c => {
+      const v = row[c];
+      if (v === null || v === undefined) return `<td class="null-val">NULL</td>`;
+      if (typeof v === 'number') return `<td class="num-val">${v}</td>`;
+      if (v === true) return `<td class="bool-true">true</td>`;
+      if (v === false) return `<td class="bool-false">false</td>`;
+      return `<td>${String(v)}</td>`;
+    }).join('') + '</tr>';
+  }
+  html += '</tbody></table></div>';
+  container.innerHTML = html;
+}
+
+function showError(msg, container) {
+  container.innerHTML = `<div class="results-header"><span class="results-label">Résultats</span><span class="badge-error">Erreur</span></div><div class="error-box">⚠️ ${msg.replace(/\n/g,'<br>')}</div>`;
+}
+
+document.getElementById('sql').addEventListener('keydown', e => {
+  if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') runQuery();
+});
+</script>
+</body>
+</html>
