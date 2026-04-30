@@ -273,3 +273,261 @@ SELECT * FROM cartes WHERE bloquee = TRUE;
 - Le fichier `.env` est exclu du dépôt Git via `.gitignore`
 - Le principe du **moindre privilège** est appliqué à chaque utilisateur
 - Chaque rôle n'a accès qu'aux opérations nécessaires à sa fonction
+
+
+# 🔒 SafeBank — Sécurisation Avancée de la Base de Données
+
+Projet réalisé dans le cadre d'un cours de **sécurité des données** — TP2.  
+L'objectif est de protéger l'application bancaire contre les accès non autorisés et de garantir la **traçabilité** des actions sensibles.
+
+---
+
+## 📋 Sommaire
+
+- [Contexte](#contexte)
+- [Architecture de sécurité](#architecture-de-sécurité)
+- [Livrables techniques](#livrables-techniques)
+- [Installation et lancement](#installation-et-lancement)
+- [Démonstration des scripts](#démonstration-des-scripts)
+- [Sauvegarde automatique](#sauvegarde-automatique)
+
+---
+
+## 🎯 Contexte
+
+Ce TP s'appuie sur la base de données bancaire créée au TP1 (PostgreSQL + Docker Compose).  
+Deux axes de sécurité sont mis en place :
+
+| Axe | Objectif |
+|---|---|
+| **Prévention** | Bloquer les attaques avant qu'elles n'atteignent la base |
+| **Surveillance** | Enregistrer et analyser les tentatives d'intrusion |
+
+---
+
+## 🛡️ Architecture de sécurité
+
+### 1. Sécurité Applicative (Prévention)
+
+#### Requêtes préparées
+La concaténation directe de chaînes SQL est remplacée par des paramètres `%s`.  
+Les entrées utilisateurs sont traitées comme du **texte pur** — l'injection SQL devient impossible.
+
+```python
+# VULNERABLE — concatenation directe
+query = "SELECT * FROM app_users WHERE username = '" + username + "'"
+
+# SECURISE — requete preparee
+cursor.execute("SELECT * FROM app_users WHERE username = %s", (username,))
+```
+
+#### Hachage Bcrypt
+Les mots de passe ne sont plus stockés en clair. Bcrypt transforme chaque mot de passe en une **empreinte irréversible** avec un sel aléatoire.  
+En cas de vol de la base, les mots de passe restent illisibles.
+
+```python
+import bcrypt
+
+# Stockage : hachage avant insertion
+hash_mdp = bcrypt.hashpw(b"password123", bcrypt.gensalt()).decode()
+
+# Vérification : comparaison sécurisée
+is_valid = bcrypt.checkpw(password_saisi.encode('utf-8'), hash_stocke.encode('utf-8'))
+```
+
+---
+
+### 2. Surveillance & Résilience (Audit)
+
+#### Audit Logging
+Chaque tentative de connexion est automatiquement enregistrée dans la table `audit_logs` :
+
+| Champ | Description |
+|---|---|
+| `user_login` | Identifiant utilisé lors de la tentative |
+| `action` | Type d'action (`login_attempt`, `sql_injection`...) |
+| `status` | Résultat (`success`, `failed_wrong_password`, `failed_user_not_found`) |
+| `details` | Informations complémentaires |
+| `created_at` | Horodatage automatique |
+
+#### Principe du moindre privilège
+Un compte dédié `audit_user` est créé avec des droits **strictement limités à la lecture** de `audit_logs`.  
+Il ne peut ni écrire, ni modifier, ni accéder aux autres tables.
+
+```sql
+CREATE USER audit_user WITH PASSWORD 'audit123';
+GRANT CONNECT ON DATABASE banque TO audit_user;
+GRANT USAGE ON SCHEMA public TO audit_user;
+GRANT SELECT ON audit_logs TO audit_user;  -- Lecture seule, rien d'autre
+```
+
+---
+
+## 📁 Livrables techniques
+
+| Fichier | Rôle |
+|---|---|
+| `injectionsql.py` | Démonstration de la vulnérabilité (formulaire NON sécurisé) |
+| `test_securite.py` | Validation de la protection par requêtes préparées + bcrypt |
+| `audit.py` | Visualisation des traces d'attaques via `audit_user` |
+| `backup.py` | Génération automatique d'une sauvegarde SQL complète |
+
+---
+
+## 🚀 Installation et lancement
+
+### Prérequis
+
+- Docker Desktop lancé avec les conteneurs du TP1 actifs
+- Python 3.x installé
+- Dépendances Python :
+
+```bash
+pip install psycopg2-binary bcrypt
+```
+
+### Vérifier que Docker tourne
+
+```bash
+docker compose ps
+```
+
+Tu dois voir `banque_db` avec le statut `running`.
+
+---
+
+## 🎬 Démonstration des scripts
+
+### 1. `injectionsql.py` — La vulnérabilité
+
+Simule un formulaire de connexion **sans aucune protection**.
+
+```bash
+python injectionsql.py
+```
+
+**Compte de test :** `alice` / `password123`
+
+**Injection à tester :** entre `' OR '1'='1' --` comme nom d'utilisateur avec n'importe quel mot de passe.
+
+```
+Nom d'utilisateur : ' OR '1'='1' --
+Mot de passe      : nimportequoi
+
+→ ACCES OBTENU : alice (role: user)
+→ INJECTION SQL REUSSIE - acces sans mot de passe !
+```
+
+La requête construite devient :
+```sql
+SELECT * FROM app_users WHERE username = '' OR '1'='1' --' AND password = '...'
+```
+La condition `'1'='1'` est toujours vraie — tous les comptes sont accessibles.
+
+---
+
+### 2. `test_securite.py` — La protection
+
+Même formulaire mais **sécurisé** : requêtes préparées + bcrypt.
+
+```bash
+python test_securite.py
+```
+
+**Compte de test :** `bob_secure` / `password123`
+
+**La même injection est bloquée :**
+
+```
+Nom d'utilisateur : ' OR '1'='1' --
+Mot de passe      : nimportequoi
+
+→ ACCES REFUSE : Utilisateur introuvable
+→ INJECTION BLOQUEE - la requete preparee a traite l'injection comme du texte pur !
+```
+
+La requête préparée traite l'entrée comme une valeur littérale — les caractères spéciaux perdent leur sens SQL.  
+Chaque tentative est automatiquement enregistrée dans `audit_logs`.
+
+---
+
+### 3. `audit.py` — Le rapport d'audit
+
+Se connecte avec `audit_user` (lecture seule) et affiche un rapport complet des événements.
+
+```bash
+python audit.py
+```
+
+**Exemple de sortie :**
+
+```
+=================================================================
+  SAFEBANK - Rapport d'Audit de Securite
+  Genere le : 19/01/2026 a 11:41:00
+  Connecte  : audit_user (lecture seule)
+=================================================================
+
+  JOURNAL COMPLET
+
+  ID    Utilisateur          Action                    Statut
+  -------------------------------------------------------------------------
+  2     injection_test       sql_injection             blocked
+
+  STATISTIQUES
+
+  Total evenements     : 2
+  Connexions reussies  : 1
+  Echecs de connexion  : 0
+  Tentatives injection : 1
+
+  TEST DROITS AUDIT_USER
+
+  audit_user ne peut PAS modifier les logs
+  Principe du moindre privilege respecte !
+=================================================================
+```
+---
+
+## 💾 Sauvegarde automatique
+
+### `backup.py` — Génération du fichier de secours
+
+Exécute un `pg_dump` à l'intérieur du conteneur Docker et génère un fichier `.sql` horodaté dans le dossier courant.
+
+```bash
+python backup.py
+```
+
+**Exemple de sortie :**
+
+```
+--- Démarrage de la sauvegarde de banque ---
+SUCCÈS : Sauvegarde créée avec succès : backup_banque_20260119_114100.sql
+Taille du fichier : 8432 octets
+```
+
+**Fichier généré :** `backup_banque_YYYYMMDD_HHMMSS.sql`
+
+Ce fichier contient l'intégralité de la structure et des données de la base — il permet une restauration complète après incident.
+
+### Restaurer depuis une sauvegarde
+
+```bash
+# Copier le fichier dans le conteneur
+docker cp backup_banque_20260119_114100.sql banque_db:/tmp/
+
+# Restaurer
+docker exec -it banque_db psql -U admin -d banque -f /tmp/backup_banque_20260119_114100.sql
+```
+
+---
+
+## 🔐 Tableau récapitulatif des protections
+
+| Menace | Sans protection | Avec protection |
+|---|---|---|
+| Injection SQL | Accès total à la base | Bloquée par les requêtes préparées |
+| Vol de la base | Mots de passe lisibles en clair | Empreintes bcrypt illisibles |
+| Accès aux logs | N'importe quel utilisateur | Limité à `audit_user` en lecture seule |
+| Perte de données | Données perdues définitivement | Restauration depuis `backup_*.sql` |
